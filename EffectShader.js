@@ -385,7 +385,19 @@ vec3 calculateColor(RayHit result, vec3 normal, vec3 intersectPos, vec3 shadeNor
             vec4 diffuse = texture2D(sceneDiffuse, vUv);
             vec2 uv = vec2((gl_FragCoord.xy) / resolution) * 2.0 - 1.0;
             Ray ray = createCameraRay(uv);
-            RayHit result = raycast(ray, -1.0);
+            bool inWater = texture2D(voxelTex, toVoxelSpace(ray.origin) / boxSize).w == 4.0;
+            if (inWater) {
+              vec3 normal = (viewMatrixInv * vec4(0.0, 0.0, 1.0, 0.0)).xyz;
+              vec2 scaledUv = vec2(vUv.x * (resolution.x / resolution.y), vUv.y);
+              vec3 normalMap = texture2D(waterNormal, scaledUv + time * 0.01).xyz;
+              vec3 normalMap2 = texture2D(waterNormal2, scaledUv - time * 0.01).xyz;
+              normalMap = normalMap * 2.0 - 1.0;
+              normalMap2 = normalMap2 * 2.0 - 1.0;
+              mat3 TBN = GetTangentSpace(normal);
+              normal = normalize(mix(normal, normalize(mix(normalize(TBN * normalMap), normalize(TBN * normalMap2), snoise(vec3(scaledUv.x, time * 0.5, scaledUv.y)))), 0.1));
+              ray.direction = refract(ray.direction, normal, 1.0 / 1.3);
+            }
+            RayHit result = raycast(ray, inWater ? 4.0 : -1.0);
             if (result.hit) {
               vec3 intersectPos = voxelIntersectPos(result.pos, ray);
               vec3 normal = result.normal;
@@ -431,9 +443,16 @@ vec3 calculateColor(RayHit result, vec3 normal, vec3 intersectPos, vec3 shadeNor
                 float reflectance = 0.02 + ( 1.0 - 0.02 ) * pow( ( 1.0 - theta ), 5.0 );
                 albedo = mix(albedo, mix(refractedColor, reflectedColor, reflectance), 0.5);
               }
+              if (inWater) {
+                albedo = mix(albedo, vec3(0.25, 0.5, 1.0), 1.0 - exp(-0.05 * distance(intersectPos, cameraPos)));
+              }
               gl_FragColor = vec4(albedo, 1.0);
             } else {
-              gl_FragColor = vec4(texture2D(sceneDiffuse, vUv).rgb, 1.0);
+              vec3 albedo = texture2D(sceneDiffuse, vUv).rgb;
+              if (inWater) {
+                albedo = mix(albedo, vec3(0.25, 0.5, 1.0), 0.5);
+              }
+              gl_FragColor = vec4(albedo, 1.0);
             }
 		}`
 
