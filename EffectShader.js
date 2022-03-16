@@ -30,7 +30,7 @@ const EffectShader = {
     fragmentShader: /* glsl */ `
     precision highp sampler3D;
 		uniform sampler2D sceneDiffuse;
-    uniform sampler2D[5] atlas;
+    uniform sampler2D[7] atlas;
     uniform sampler2D waterNormal;
     uniform sampler2D waterNormal2;
     uniform sampler3D voxelTex;
@@ -54,6 +54,7 @@ const EffectShader = {
         vec3 normal;
         vec4 data;
         bool hit;
+        bool water;
       };
       Ray createRay(vec3 origin, vec3 direction) {
         Ray ray;
@@ -61,12 +62,13 @@ const EffectShader = {
         ray.direction = direction;
         return ray;
     }
-      RayHit createRayHit(vec3 pos, vec3 normal, vec4 data, bool hit) {
+      RayHit createRayHit(vec3 pos, vec3 normal, vec4 data, bool hit, bool water) {
         RayHit result;
         result.pos = pos;
         result.normal = normal;
         result.data = data;
         result.hit = hit;
+        result.water = water;
         return result;
       }
         Ray createCameraRay(vec2 uv) {
@@ -109,6 +111,7 @@ const EffectShader = {
       vec3 sideDist = (sign(ray.direction) * (voxelPos - startPos) + (sign(ray.direction) * 0.5) + 0.5) * deltaDist; 
 
       bvec3 mask;
+      bool water = false;
       for (float i = 0.0; i < ceil(dist * 2.0); i++) {
         if (voxelPos.x < -1.0 || voxelPos.x > boxSize.x + 1.0 || voxelPos.y < -1.0
         || voxelPos.y > boxSize.y + 1.0 || voxelPos.z < -1.0 || voxelPos.z > boxSize.z + 1.0) {
@@ -118,6 +121,9 @@ const EffectShader = {
         sideDist += vec3(mask) * deltaDist;
         voxelPos += vec3(mask) * rayStep;
         vec4 c = texture(voxelTex, voxelPos / boxSize);
+        if (c.w == 4.0) {
+          water = true;
+        }
         if (c.w > 0.0 && c.w != noHit) {
           vec3 normal = vec3(0.0);
           if (mask.x) {
@@ -127,11 +133,14 @@ const EffectShader = {
           } else {
             normal = vec3(0.0, 0.0, -sign(rayStep.z));
           }
-          return createRayHit(voxelPos, normal, c, true);
+          return createRayHit(voxelPos, normal, c, true, water);
+        }
+        if (c.w != 4.0) {
+          water = false;
         }
       }
 
-      return createRayHit(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), vec4(0.0, 0.0, 0.0, 0.0), false);
+      return createRayHit(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), vec4(0.0, 0.0, 0.0, 0.0), false, water);
     }
     RayHit raycast(Ray ray, float mask) {
       vec2 voxelBoxDist = rayBoxDist(boxCenter - boxSize / 2.0, boxCenter + boxSize / 2.0, ray);
@@ -377,6 +386,10 @@ vec3 calculateColor(RayHit result, vec3 normal, vec3 intersectPos, vec3 shadeNor
     textureColor = texture2D(atlas[3], worldSampleCoord * 0.25).rgb;
   } else if (sampleIndex == 6.0) {
     textureColor = texture2D(atlas[4], worldSampleCoord * 0.25).rgb;
+  } else if (sampleIndex == 7.0) {
+    textureColor = texture2D(atlas[5], worldSampleCoord * 0.25).rgb;
+  } else if (sampleIndex == 8.0) {
+    textureColor = texture2D(atlas[6], worldSampleCoord * 0.25).rgb;
   }
   albedo = mix(albedo, textureColor, textureColor.x == -1.0 ? 0.0 : 0.5);
   return albedo * illumination * (0.175 + 0.825 * ao);
@@ -444,11 +457,11 @@ vec3 calculateColor(RayHit result, vec3 normal, vec3 intersectPos, vec3 shadeNor
                 albedo = mix(albedo, mix(refractedColor, reflectedColor, reflectance), 0.5);
               }
               if (inWater) {
-                albedo = mix(albedo, vec3(0.25, 0.5, 1.0), 1.0 - exp(-0.05 * distance(intersectPos, cameraPos)));
+                albedo = mix((result.water ? 2.0 : 1.0) * albedo, vec3(0.25, 0.5, 1.0), 1.0 - exp(-0.05 * distance(intersectPos, cameraPos)));
               }
               gl_FragColor = vec4(albedo, 1.0);
             } else {
-              vec3 albedo = texture2D(sceneDiffuse, vUv).rgb;
+              vec3 albedo = texture2D(skybox, ray.direction).rgb;
               if (inWater) {
                 albedo = mix(albedo, vec3(0.25, 0.5, 1.0), 0.5);
               }

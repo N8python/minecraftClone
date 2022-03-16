@@ -163,6 +163,16 @@ async function main() {
                 blockToPlace[0] = factor * 0.25;
                 blockToPlace[1] = factor;
                 blockToPlace[2] = factor * 0.25;
+            } else if (type === 7) {
+                let factor = 0.75 + 0.5 * Math.random()
+                blockToPlace[0] = (194 / 255) * factor;
+                blockToPlace[1] = (178 / 255) * factor;
+                blockToPlace[2] = (128 / 255) * factor;
+            } else if (type === 8) {
+                let factor = 0.5 + 0.25 * Math.random();
+                blockToPlace[0] = factor;
+                blockToPlace[1] = factor;
+                blockToPlace[2] = factor;
             }
             data[idx] = blockToPlace[0];
             data[idx + 1] = blockToPlace[1];
@@ -236,6 +246,12 @@ async function main() {
     const leafTex = new THREE.TextureLoader().load("leaftex.jpeg");
     leafTex.wrapS = THREE.RepeatWrapping;
     leafTex.wrapT = THREE.RepeatWrapping;
+    const sandTex = new THREE.TextureLoader().load("sandtex.jpeg");
+    sandTex.wrapS = THREE.RepeatWrapping;
+    sandTex.wrapT = THREE.RepeatWrapping;
+    const gravelTex = new THREE.TextureLoader().load("graveltex.jpeg");
+    gravelTex.wrapS = THREE.RepeatWrapping;
+    gravelTex.wrapT = THREE.RepeatWrapping;
     const waterNormalMap = new THREE.TextureLoader().load("waternormal.jpeg");
     const waterNormalMap2 = new THREE.TextureLoader().load("waternormal2.png");
     waterNormalMap.wrapS = THREE.RepeatWrapping;
@@ -246,36 +262,104 @@ async function main() {
         for (let y = 0; y < boxSize.y; y++) {
             for (let x = 0; x < boxSize.x; x++) {
                 const idx = (z * (boxSize.y * boxSize.x) + y * (boxSize.x) + x) * 4;
-                if (!(z === 0 || z === (boxSize.z - 1) || y === 0 || y === (boxSize.y - 1) || x === 0 || x === (boxSize.z - 1))) {
+                if (!(z === 0 || z === (boxSize.z - 1) || y === 0 || y === (boxSize.y - 1) || x === 0 || x === (boxSize.x - 1))) {
                     let height = 0;
                     for (let i = 0; i < 3; i++) {
                         height += 10 / (2 ** i) * noise.simplex2(z * 0.01 * (2 ** i), x * 0.01 * (2 ** i));
                     }
                     height = Math.round(height);
+                    let caveFactor = 0;
+                    for (let i = 0; i < 4; i++) {
+                        caveFactor += 1 / (2 ** i) * noise.simplex3(x * 0.02 * (2 ** i), y * 0.02 * (2 ** i), z * 0.02 * (2 ** i));
+                    }
+                    caveFactor = Math.sign(Math.round(caveFactor + 1.125));
+                    if (height < 0 && y >= 50 + height) {
+                        caveFactor = 1;
+                    }
+                    if (y < 5 + Math.abs(height)) {
+                        caveFactor = 1;
+                    }
+                    if (x === 1 || x === boxSize - 2) {
+                        caveFactor = 1;
+                    }
+                    if (z === 1 || z === boxSize - 2) {
+                        caveFactor = 1;
+                    }
                     if (y < 53 + height && y >= 50 + height) {
                         data[idx] = 0;
                         data[idx + 1] = 0.5 + 0.5 * Math.random();
                         data[idx + 2] = 0;
-                        data[idx + 3] = 1;
+                        data[idx + 3] = 1 * caveFactor;
                     } else if (y >= 43 + height && y <= 50 + height) {
                         let factor = 0.75 + 0.5 * Math.random()
                         data[idx] = (161 / 255) * factor;
                         data[idx + 1] = (103 / 255) * factor;
                         data[idx + 2] = (60 / 255) * factor;
-                        data[idx + 3] = 2;
+                        data[idx + 3] = 2 * caveFactor;
                     } else if (y < 43 + height) {
                         let factor = 0.5 + 0.25 * Math.random();
                         data[idx] = factor;
                         data[idx + 1] = factor;
                         data[idx + 2] = factor;
-                        data[idx + 3] = 3;
+                        data[idx + 3] = 3 * caveFactor;
                     }
-                    if (y < 50 && data[idx + 3] === 0) {
+                    if (y < 50 && data[idx + 3] === 0 && data[idx + 3 - boxSize.x * 4] !== 0) {
                         let factor = 0.5 + 0.25 * Math.random();
                         data[idx] = factor * 0.25;
                         data[idx + 1] = factor * 0.5;
                         data[idx + 2] = factor;
-                        data[idx + 3] = 4;
+                        data[idx + 3] = 4 * caveFactor;
+                    }
+                }
+            }
+        }
+    }
+    for (let z = 0; z < boxSize.z; z++) {
+        for (let y = 0; y < boxSize.y; y++) {
+            for (let x = 0; x < boxSize.x; x++) {
+                const idx = (z * (boxSize.y * boxSize.x) + y * (boxSize.x) + x) * 4;
+                if (!(z === 0 || z === (boxSize.z - 1) || y === 0 || y === (boxSize.y - 1) || x === 0 || x === (boxSize.x - 1))) {
+                    if (data[idx + 3] === 4) {
+                        for (let z_ = -3 + z; z_ <= 3 + z; z_++) {
+                            for (let y_ = -1 + y; y_ <= 1 + y; y_++) {
+                                for (let x_ = -3 + x; x_ <= 3 + x; x_++) {
+                                    const i = (z_ * (boxSize.y * boxSize.x) + y_ * (boxSize.x) + x_) * 4;
+                                    if (!(z_ === 0 || z_ === (boxSize.z - 1) || y_ === 0 || y_ === (boxSize.y - 1) || x_ === 0 || x_ === (boxSize.x - 1))) {
+                                        if (data[i + 3] === 1) {
+                                            if (data[i + 3 + boxSize.x * 4] === 4 && data[i + 3 + boxSize.x * 8] === 4 &&
+                                                data[i + 3 + boxSize.x * 12] === 4) {
+                                                let factor = 0.5 + 0.25 * Math.random();
+                                                data[idx] = factor;
+                                                data[idx + 1] = factor;
+                                                data[idx + 2] = factor;
+                                                data[idx + 3] = 8;
+                                            } else {
+                                                let factor = 0.75 + 0.5 * Math.random()
+                                                data[i] = (194 / 255) * factor;
+                                                data[i + 1] = (178 / 255) * factor;
+                                                data[i + 2] = (128 / 255) * factor;
+                                                data[i + 3] = 7;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if (data[idx + 3] === 2) {
+                        let blocked = false;
+                        for (let w = y + 1; w < boxSize.y; w++) {
+                            const i = (z * (boxSize.y * boxSize.x) + w * (boxSize.x) + x) * 4;
+                            if (data[i + 3] !== 0) {
+                                blocked = true;
+                                break;
+                            }
+                        }
+                        if (!blocked) {
+                            data[idx] = 0;
+                            data[idx + 1] = 0.5 + 0.5 * Math.random();
+                            data[idx + 2] = 0;
+                            data[idx + 3] = 1;
+                        }
                     }
                 }
             }
@@ -291,6 +375,10 @@ async function main() {
                 placeY = y;
                 break;
             }
+        }
+        if (placeY === 1) {
+            i--;
+            continue;
         }
         const idx = (randomZ * (boxSize.y * boxSize.x) + placeY * (boxSize.x) + randomX) * 4;
         let factor = 0.75 + 0.5 * Math.random()
@@ -393,7 +481,7 @@ async function main() {
         effectPass.uniforms['resolution'].value = new THREE.Vector2(clientWidth, clientHeight);
         effectPass.uniforms['time'].value = performance.now() / 1000;
         effectPass.uniforms['voxelTex'].value = texture;
-        effectPass.uniforms['atlas'].value = [grassTex, dirtTex, stoneTex, woodTex, leafTex];
+        effectPass.uniforms['atlas'].value = [grassTex, dirtTex, stoneTex, woodTex, leafTex, sandTex, gravelTex];
         effectPass.uniforms['boxCenter'].value = boxCenter;
         effectPass.uniforms['boxSize'].value = boxSize;
         effectPass.uniforms['waterNormal'].value = waterNormalMap;
