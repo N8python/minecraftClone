@@ -258,16 +258,17 @@ async function main() {
     waterNormalMap.wrapT = THREE.RepeatWrapping;
     waterNormalMap2.wrapS = THREE.RepeatWrapping;
     waterNormalMap2.wrapT = THREE.RepeatWrapping;
+    console.time();
     for (let z = 0; z < boxSize.z; z++) {
-        for (let y = 0; y < boxSize.y; y++) {
-            for (let x = 0; x < boxSize.x; x++) {
+        for (let x = 0; x < boxSize.x; x++) {
+            let height = 0;
+            for (let i = 0; i < 3; i++) {
+                height += 10 / (2 ** i) * noise.simplex2(z * 0.01 * (2 ** i), x * 0.01 * (2 ** i));
+            }
+            height = Math.round(height);
+            for (let y = 0; y < boxSize.y; y++) {
                 const idx = (z * (boxSize.y * boxSize.x) + y * (boxSize.x) + x) * 4;
                 if (!(z === 0 || z === (boxSize.z - 1) || y === 0 || y === (boxSize.y - 1) || x === 0 || x === (boxSize.x - 1))) {
-                    let height = 0;
-                    for (let i = 0; i < 3; i++) {
-                        height += 10 / (2 ** i) * noise.simplex2(z * 0.01 * (2 ** i), x * 0.01 * (2 ** i));
-                    }
-                    height = Math.round(height);
                     let caveFactor = 0;
                     for (let i = 0; i < 4; i++) {
                         caveFactor += 1 / (2 ** i) * noise.simplex3(x * 0.02 * (2 ** i), y * 0.02 * (2 ** i), z * 0.02 * (2 ** i));
@@ -279,10 +280,10 @@ async function main() {
                     if (y < 5 + Math.abs(height)) {
                         caveFactor = 1;
                     }
-                    if (x === 1 || x === boxSize - 2) {
+                    if (x <= 1 || x >= boxSize - 2) {
                         caveFactor = 1;
                     }
-                    if (z === 1 || z === boxSize - 2) {
+                    if (z <= 1 || z >= boxSize - 2) {
                         caveFactor = 1;
                     }
                     if (y < 53 + height && y >= 50 + height) {
@@ -314,6 +315,7 @@ async function main() {
             }
         }
     }
+    console.timeEnd();
     for (let z = 0; z < boxSize.z; z++) {
         for (let y = 0; y < boxSize.y; y++) {
             for (let x = 0; x < boxSize.x; x++) {

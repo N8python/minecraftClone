@@ -394,6 +394,86 @@ vec3 calculateColor(RayHit result, vec3 normal, vec3 intersectPos, vec3 shadeNor
   albedo = mix(albedo, textureColor, textureColor.x == -1.0 ? 0.0 : 0.5);
   return albedo * illumination * (0.175 + 0.825 * ao);
 }
+float random(vec2 n) { 
+	return fract(sin(dot(n, vec2(12.9898, 4.1414))) * 43758.5453);
+}
+float noise(vec2 uv)
+{
+    vec2 i = floor(uv);
+    vec2 f = fract(uv);
+    f = f * f * (3. - 2. * f);
+    
+    float lb = random(i + vec2(0., 0.));
+    float rb = random(i + vec2(1., 0.));
+    float lt = random(i + vec2(0., 1.));
+    float rt = random(i + vec2(1., 1.));
+    
+    return mix(mix(lb, rb, f.x), 
+               mix(lt, rt, f.x), f.y);
+}
+const int OCTAVES = 8;
+float fbm(vec2 uv, float octaves)
+{
+    float value = 0.;
+    float amplitude = .5;
+    for (float i = 0.0; i < octaves; i++)
+    {
+        value += noise(uv) * amplitude;
+        
+        amplitude *= .5;
+        uv *= 2.;
+    }
+    
+    return value;
+}
+vec3 sky(vec3 ro, vec3 rd) {
+  const float SC = 1e5;
+  /*// Calculate sky plane
+   float dist = (SC - ro.y) / rd.y; 
+   vec2 p = (ro + dist * rd).xz;
+   p *= 1.2 / SC;
+   
+   // from iq's shader, https://www.shadertoy.com/view/MdX3Rr
+   vec3 lightDir = normalize(vec3(-.8, .15, -.3));;
+   float sundot = clamp(dot(rd, lightDir), 0.0, 1.0);
+   
+   vec3 cloudCol = vec3(1.);
+   //vec3 skyCol = vec3(.6, .71, .85) - rd.y * .2 * vec3(1., .5, 1.) + .15 * .5;
+   vec3 skyCol = vec3(0.3,0.5,0.85) - rd.y*rd.y*0.5;
+   skyCol = mix( skyCol, 0.85 * vec3(0.7,0.75,0.85), pow( 1.0 - max(rd.y, 0.0), 4.0 ) );
+   
+   // sun
+   vec3 sun = 0.25 * vec3(1.0,0.7,0.4) * pow( sundot,5.0 );
+   sun += 0.25 * vec3(1.0,0.8,0.6) * pow( sundot,64.0 );
+   sun += 0.2 * vec3(1.0,0.8,0.6) * pow( sundot,512.0 );
+   skyCol += sun;
+   
+   // clouds
+   float t = time * 0.0001;
+   float den = fbm(vec2(p.x - t, p.y - t));
+   skyCol = mix( skyCol, cloudCol, smoothstep(.4, .8, den));
+   
+   // horizon
+   skyCol = mix( skyCol,  vec3(0.45, 0.55, 0.75), pow( 1.0 - max(rd.y, 0.0), 16.0 ) );*/
+   vec3 skyCol = vec3(0.3,0.5,0.85);
+   vec3 cloudCol = vec3(1.);
+   float dist = (SC - ro.y) / rd.y; 
+   vec2 p = (ro + dist * rd).xz;
+   p *= 1.2 / SC;
+   float t = time * 0.1;
+   float den = fbm(vec2(p.x - t, p.y - t), 8.0);
+   float den2 = fbm(vec2(p.x - t + 100.0, p.y - t + 100.0) * 2.0, 8.0);
+   vec3 lightDir = normalize(vec3(0.7, 0.8, 0.5));
+   float sundot = clamp(dot(rd, lightDir), 0.0, 1.0);
+   vec3 sun = 0.25 * vec3(1.0,0.7,0.4) * pow( sundot, 5.0 );
+   sun += 0.25 * vec3(1.0,0.8,0.6) * pow( sundot, 32.0 );
+   sun += 0.6 * vec3(1.0,0.8,0.6) * pow( sundot, 128.0 );
+   sun += 1.0 * vec3(1.0,0.8,0.6) * pow( sundot, 512.0 );
+   skyCol = mix(skyCol, sun, length(sun * 0.2));
+   skyCol = mix( skyCol, cloudCol * (0.5 + 0.5 * den2), smoothstep(.4, .8, den));
+   skyCol = mix( skyCol,  vec3(0.45, 0.55, 0.75), pow( 1.0 - max(rd.y, 0.0), 4.0 ) );
+   return skyCol;
+}
 		void main() {
             vec4 diffuse = texture2D(sceneDiffuse, vUv);
             vec2 uv = vec2((gl_FragCoord.xy) / resolution) * 2.0 - 1.0;
@@ -428,7 +508,7 @@ vec3 calculateColor(RayHit result, vec3 normal, vec3 intersectPos, vec3 shadeNor
                 normalMap = normalMap * 2.0 - 1.0;
                 normalMap2 = normalMap2 * 2.0 - 1.0;
                 mat3 TBN = GetTangentSpace(normal);
-                normal = normalize(mix(normal, normalize(mix(normalize(TBN * normalMap), normalize(TBN * normalMap2), snoise(vec3(intersectPos.x, time * 0.5, intersectPos.z)))), 0.25));
+                normal = normalize(mix(normal, normalize(mix(normalize(TBN * normalMap), normalize(TBN * normalMap2), snoise(vec3(worldSampleCoord.x, time * 0.5, worldSampleCoord.y)))), 0.25));
               }
               vec3 albedo = calculateColor(result, result.normal, intersectPos, normal, ray);
               if (result.data.w == 4.0) {
@@ -442,13 +522,13 @@ vec3 calculateColor(RayHit result, vec3 normal, vec3 intersectPos, vec3 shadeNor
                   vec3 intersectPosR = voxelIntersectPos(rc.pos, reflectionRay);
                   reflectedColor = calculateColor(rc, rc.normal, intersectPosR, rc.normal, reflectionRay);
                 } else {
-                  reflectedColor = texture(skybox, reflectionRay.direction).rgb;
+                  reflectedColor = sky(reflectionRay.origin, reflectionRay.direction);
                 }
                 if (rrc.hit && rrc.data.w != 4.0) {
                   vec3 intersectPosR = voxelIntersectPos(rrc.pos, refractionRay);
                   refractedColor = calculateColor(rrc, rrc.normal, intersectPosR, rrc.normal, refractionRay);
                 } else {
-                  refractedColor = texture(skybox, refractionRay.direction).rgb;
+                  refractedColor = sky(refractionRay.origin, refractionRay.direction);
                 }
                 reflectedColor *= 2.0;
                 refractedColor *= 2.0;
@@ -461,7 +541,7 @@ vec3 calculateColor(RayHit result, vec3 normal, vec3 intersectPos, vec3 shadeNor
               }
               gl_FragColor = vec4(albedo, 1.0);
             } else {
-              vec3 albedo = texture2D(skybox, ray.direction).rgb;
+              vec3 albedo = sky(ray.origin, ray.direction);
               if (inWater) {
                 albedo = mix(albedo, vec3(0.25, 0.5, 1.0), 0.5);
               }
