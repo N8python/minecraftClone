@@ -1,4 +1,4 @@
-import * as THREE from 'https://cdn.skypack.dev/pin/three@v0.137.0-X5O2PK3x44y1WRry67Kr/mode=imports/optimized/three.js';
+import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
 const EffectShader = {
 
     uniforms: {
