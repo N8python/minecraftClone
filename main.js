@@ -111,10 +111,15 @@ async function main() {
         }
     }
     let numpadSelect = 1;
+    document.addEventListener('contextmenu', function(e) {
+        // do something here... 
+        e.preventDefault();
+    }, false);
     document.addEventListener('click', function(e) {
 
         controls.lock();
         if (controls.isLocked) {
+            e.preventDefault();
             const { normal, voxelPos, startPos } = cameraCast();
             /// const numpadSelect = Math.min(...Object.entries(keys).filter(([key, value]) => Number.isInteger(+key) && value).map(x => +x[0]));
             const type = e.button !== 2 ? 0 : numpadSelect;
@@ -509,7 +514,7 @@ async function main() {
     };
 
     let lastTime = performance.now();
-    //const 
+
     function animate() {
         /*renderer.setRenderTarget(defaultTexture);
         renderer.clear();
