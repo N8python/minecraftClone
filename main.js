@@ -178,13 +178,23 @@ async function main() {
             data[idx + 1] = blockToPlace[1];
             data[idx + 2] = blockToPlace[2];
             data[idx + 3] = blockToPlace[3];
+            const accelerationIdx = (Math.floor(placePos.z / 8) * ((boxSize.y / 8) * (boxSize.x / 8)) + Math.floor(placePos.y / 8) * (boxSize.x / 8) + Math.floor(placePos.x / 8)) * 4;
+            lowResAcceleration[accelerationIdx + 3] += type === 0 ? -1 : 1;
+            lowResAcceleration[accelerationIdx + 3] = Math.max(lowResAcceleration[accelerationIdx + 3], 0);
             const placeTexture = new THREE.DataTexture3D(new Float32Array(blockToPlace), 1, 1, 1);
             placeTexture.format = THREE.RGBAFormat;
             placeTexture.type = THREE.FloatType;
             placeTexture.minFilter = THREE.NearestFilter;
             placeTexture.magFilter = THREE.NearestFilter;
             placeTexture.needsUpdate = true;
+            const placeTextureA = new THREE.DataTexture3D(new Float32Array([lowResAcceleration[accelerationIdx], lowResAcceleration[accelerationIdx + 1], lowResAcceleration[accelerationIdx + 2], lowResAcceleration[accelerationIdx + 3]]), 1, 1, 1);
+            placeTextureA.format = THREE.RGBAFormat;
+            placeTextureA.type = THREE.FloatType;
+            placeTextureA.minFilter = THREE.NearestFilter;
+            placeTextureA.magFilter = THREE.NearestFilter;
+            placeTextureA.needsUpdate = true;
             renderer.copyTextureToTexture3D(new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0)), placePos.floor(), placeTexture, texture);
+            renderer.copyTextureToTexture3D(new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0)), placePos.divideScalar(8).floor(), placeTextureA, acceleratedTexture);
         }
 
     });
@@ -204,6 +214,14 @@ async function main() {
         "skybox/Box_Back.bmp"
     ]);
     scene.background = environment;
+    const stars = new THREE.CubeTextureLoader().load([
+        "starSkybox/StarSkybox041.png",
+        "starSkybox/StarSkybox042.png",
+        "starSkybox/StarSkybox043.png",
+        "starSkybox/StarSkybox044.png",
+        "starSkybox/StarSkybox045.png",
+        "starSkybox/StarSkybox046.png"
+    ]);
     // Lighting
     const ambientLight = new THREE.AmbientLight(new THREE.Color(1.0, 1.0, 1.0), 0.25);
     scene.add(ambientLight);
@@ -228,7 +246,7 @@ async function main() {
     directionalLight2.position.set(-50, 200, -150);
     scene.add(directionalLight2);
     const boxCenter = new THREE.Vector3(0, 1, 0);
-    const boxSize = new THREE.Vector3(514, 102, 514);
+    const boxSize = new THREE.Vector3(512, 104, 512);
     const data = new Float32Array(boxSize.x * boxSize.y * boxSize.z * 4);
     noise.seed(Math.random());
     const grassTex = new THREE.TextureLoader().load("grasstex.jpeg");
@@ -258,7 +276,6 @@ async function main() {
     waterNormalMap.wrapT = THREE.RepeatWrapping;
     waterNormalMap2.wrapS = THREE.RepeatWrapping;
     waterNormalMap2.wrapT = THREE.RepeatWrapping;
-    console.time();
     for (let z = 0; z < boxSize.z; z++) {
         for (let x = 0; x < boxSize.x; x++) {
             let height = 0;
@@ -280,10 +297,10 @@ async function main() {
                     if (y < 5 + Math.abs(height)) {
                         caveFactor = 1;
                     }
-                    if (x <= 1 || x >= boxSize - 2) {
+                    if (x <= 1 || x >= boxSize.x - 2) {
                         caveFactor = 1;
                     }
-                    if (z <= 1 || z >= boxSize - 2) {
+                    if (z <= 1 || z >= boxSize.z - 2) {
                         caveFactor = 1;
                     }
                     if (y < 53 + height && y >= 50 + height) {
@@ -315,7 +332,6 @@ async function main() {
             }
         }
     }
-    console.timeEnd();
     for (let z = 0; z < boxSize.z; z++) {
         for (let y = 0; y < boxSize.y; y++) {
             for (let x = 0; x < boxSize.x; x++) {
@@ -435,12 +451,39 @@ async function main() {
             }
         }
     }
+
     let texture = new THREE.DataTexture3D(data, boxSize.x, boxSize.y, boxSize.z);
     texture.format = THREE.RGBAFormat;
     texture.type = THREE.FloatType;
     texture.minFilter = THREE.NearestFilter;
     texture.magFilter = THREE.NearestFilter;
     texture.needsUpdate = true;
+    const lowResAcceleration = new Float32Array((boxSize.x / 8) * (boxSize.y / 8) * (boxSize.z / 8) * 4);
+    for (let z = 0; z < Math.floor(boxSize.z / 8); z++) {
+        for (let y = 0; y < Math.floor(boxSize.y / 8); y++) {
+            for (let x = 0; x < Math.floor(boxSize.x / 8); x++) {
+                const idx = (z * ((boxSize.y / 8) * (boxSize.x / 8)) + y * (boxSize.x / 8) + x) * 4;
+                let voxels = 0;
+                for (let z_ = z * 8; z_ < z * 8 + 8; z_++) {
+                    for (let y_ = y * 8; y_ < y * 8 + 8; y_++) {
+                        for (let x_ = x * 8; x_ < x * 8 + 8; x_++) {
+                            const i = (z_ * (boxSize.y * boxSize.x) + y_ * (boxSize.x) + x_) * 4;
+                            if (data[i + 3] > 0) {
+                                voxels += 1;
+                            }
+                        }
+                    }
+                }
+                lowResAcceleration[idx + 3] = voxels;
+            }
+        }
+    }
+    let acceleratedTexture = new THREE.DataTexture3D(lowResAcceleration, boxSize.x / 8, boxSize.y / 8, boxSize.z / 8);
+    acceleratedTexture.format = THREE.RGBAFormat;
+    acceleratedTexture.type = THREE.FloatType;
+    acceleratedTexture.minFilter = THREE.NearestFilter;
+    acceleratedTexture.magFilter = THREE.NearestFilter;
+    acceleratedTexture.needsUpdate = true;
     // Build postprocessing stack
     // Render Targets
     const defaultTexture = new THREE.WebGLRenderTarget(clientWidth, clientWidth, {
@@ -466,11 +509,11 @@ async function main() {
     };
 
     let lastTime = performance.now();
-
+    //const 
     function animate() {
-        renderer.setRenderTarget(defaultTexture);
+        /*renderer.setRenderTarget(defaultTexture);
         renderer.clear();
-        renderer.render(scene, camera);
+        renderer.render(scene, camera);*/
         const delta = performance.now() - lastTime;
         lastTime = performance.now();
         effectPass.uniforms["sceneDiffuse"].value = defaultTexture.texture;
@@ -483,11 +526,14 @@ async function main() {
         effectPass.uniforms['resolution'].value = new THREE.Vector2(clientWidth, clientHeight);
         effectPass.uniforms['time'].value = performance.now() / 1000;
         effectPass.uniforms['voxelTex'].value = texture;
+        effectPass.uniforms['voxelAccelerated'].value = acceleratedTexture;
         effectPass.uniforms['atlas'].value = [grassTex, dirtTex, stoneTex, woodTex, leafTex, sandTex, gravelTex];
         effectPass.uniforms['boxCenter'].value = boxCenter;
         effectPass.uniforms['boxSize'].value = boxSize;
         effectPass.uniforms['waterNormal'].value = waterNormalMap;
         effectPass.uniforms['waterNormal2'].value = waterNormalMap2;
+        effectPass.uniforms['starbox'].value = stars;
+        effectPass.uniforms['sunDir'].value = new THREE.Vector3().setFromSphericalCoords(1, performance.now() / 10000 - Math.PI / 2, Math.PI / 8).normalize(); // new THREE.Vector3(0.7, 0.8, 0.5).normalize();
         composer.render();
         //controls.update();
         let speed = 0.25;

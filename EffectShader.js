@@ -13,11 +13,14 @@ const EffectShader = {
         'resolution': { value: new THREE.Vector2() },
         'time': { value: 0.0 },
         'voxelTex': { value: null },
+        'voxelAccelerated': { value: null },
         'atlas': { value: null },
         'boxCenter': { value: new THREE.Vector3() },
         'boxSize': { value: new THREE.Vector3() },
         'waterNormal': { value: null },
-        'waterNormal2': { value: null }
+        'waterNormal2': { value: null },
+        'sunDir': { value: new THREE.Vector3() },
+        'starbox': { value: null }
     },
 
     vertexShader: /* glsl */ `
@@ -34,7 +37,9 @@ const EffectShader = {
     uniform sampler2D waterNormal;
     uniform sampler2D waterNormal2;
     uniform sampler3D voxelTex;
+    uniform sampler3D voxelAccelerated;
     uniform samplerCube skybox;
+    uniform samplerCube starbox;
     uniform vec3 boxCenter;
     uniform vec3 boxSize;
     uniform mat4 projMat;
@@ -43,6 +48,7 @@ const EffectShader = {
     uniform mat4 projectionMatrixInv;
     uniform vec3 cameraPos;
     uniform vec2 resolution;
+    uniform vec3 sunDir;
     uniform float time;
         varying vec2 vUv;
         struct Ray {
@@ -105,14 +111,79 @@ const EffectShader = {
       return pos;
     }
     RayHit voxelCast(vec3 startPos, Ray ray, float dist, float noHit) {
-      vec3 voxelPos = floor(startPos);
+      //vec3 voxelPos = floor(startPos);
       vec3 deltaDist = abs(vec3(length(ray.direction)) / ray.direction);
       vec3 rayStep = vec3(sign(ray.direction));
-      vec3 sideDist = (sign(ray.direction) * (voxelPos - startPos) + (sign(ray.direction) * 0.5) + 0.5) * deltaDist; 
+      //vec3 sideDist = (sign(ray.direction) * (voxelPos - startPos) + (sign(ray.direction) * 0.5) + 0.5) * deltaDist; 
 
       bvec3 mask;
       bool water = false;
-      for (float i = 0.0; i < ceil(dist * 2.0); i++) {
+      vec3 astartPos = startPos / 8.0;
+      vec3 avoxelPos = floor(astartPos);
+      vec3 asideDist = (sign(ray.direction) * (avoxelPos - astartPos) + (sign(ray.direction) * 0.5) + 0.5) * deltaDist;
+      for (float i = 0.0; i < (ceil(dist * 2.0) / 8.0); i++) {
+        if (avoxelPos.x < -1.0 || avoxelPos.x > (boxSize.x + 1.0) / 8.0 || avoxelPos.y < -1.0
+          || avoxelPos.y > (boxSize.y + 1.0) / 8.0 || avoxelPos.z < -1.0 || avoxelPos.z > (boxSize.z + 1.0) / 8.0) {
+            break;
+          }
+          vec4 c = texture(voxelAccelerated, avoxelPos / (boxSize / 8.0));
+          if (c.w > 0.0) {
+            vec3 boxMin = floor(toWorldSpace(avoxelPos * 8.0)) - vec3(1.0);
+            vec3 boxMax = boxMin + vec3(8.0, 8.0, 8.0) + vec3(1.0);
+            vec2 voxelBoxDist = rayBoxDist(boxMin, boxMax, ray);
+            boxMin = toVoxelSpace(boxMin);
+            boxMax = toVoxelSpace(boxMax);
+            float distToBox = voxelBoxDist.x;
+            float distInsideBox = voxelBoxDist.y;
+            vec3 startPos = toVoxelSpace(ray.origin + (distToBox - 0.001) * ray.direction);
+            vec3 voxelPos = floor(startPos);
+            vec3 sideDist = (sign(ray.direction) * (voxelPos - startPos) + (sign(ray.direction) * 0.5) + 0.5) * deltaDist;
+            bvec3 mask;
+            bool water = false;
+            for (float i = 0.0; i < ceil(distInsideBox * 2.0); i++) {
+              /*if (voxelPos.x < 1.0 || voxelPos.x > boxSize.x - 1.0 || voxelPos.y < 1.0
+                || voxelPos.y > boxSize.y - 1.0 || voxelPos.z < 1.0 || voxelPos.z > boxSize.z - 1.0) {
+                  break;
+                }*/
+              vec4 c = texture(voxelTex, voxelPos / boxSize);
+              if (c.w == 4.0) {
+                water = true;
+              }
+              if (c.w > 0.0 && c.w != noHit) {
+                vec3 normal = vec3(0.0);
+                if (mask.x) {
+                  normal = vec3(-sign(rayStep.x), 0.0, 0.0);
+                } else if (mask.y) {
+                  normal = vec3(0.0, -sign(rayStep.y), 0.0);
+                } else {
+                  normal = vec3(0.0, 0.0, -sign(rayStep.z));
+                }
+                return createRayHit(voxelPos, normal, c, true, water);
+              }
+              if (c.w != 4.0) {
+                water = false;
+              }
+              mask = lessThanEqual(sideDist.xyz, min(sideDist.yzx, sideDist.zxy));
+              sideDist += vec3(mask) * deltaDist;
+              voxelPos += vec3(mask) * rayStep;
+            }
+            /*vec3 normal = vec3(0.0);
+            if (mask.x) {
+              normal = vec3(-sign(rayStep.x), 0.0, 0.0);
+            } else if (mask.y) {
+              normal = vec3(0.0, -sign(rayStep.y), 0.0);
+            } else {
+              normal = vec3(0.0, 0.0, -sign(rayStep.z));
+            }
+            return createRayHit(avoxelPos * 8.0, normal, vec4(0.5, 0.5, 0.5, 1.0), true, false);*/
+
+          }
+          mask = lessThanEqual(asideDist.xyz, min(asideDist.yzx, asideDist.zxy));
+          asideDist += vec3(mask) * deltaDist;
+          avoxelPos += vec3(mask) * rayStep;
+      }
+      return  createRayHit(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), vec4(0.0, 0.0, 0.0, 0.0), false, false);
+     /* for (float i = 0.0; i < ceil(dist * 2.0); i++) {
         if (voxelPos.x < -1.0 || voxelPos.x > boxSize.x + 1.0 || voxelPos.y < -1.0
         || voxelPos.y > boxSize.y + 1.0 || voxelPos.z < -1.0 || voxelPos.z > boxSize.z + 1.0) {
           break;
@@ -138,9 +209,9 @@ const EffectShader = {
         if (c.w != 4.0) {
           water = false;
         }
-      }
+      }*/
 
-      return createRayHit(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), vec4(0.0, 0.0, 0.0, 0.0), false, water);
+      //return createRayHit(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), vec4(0.0, 0.0, 0.0, 0.0), false, water);
     }
     RayHit raycast(Ray ray, float mask) {
       vec2 voxelBoxDist = rayBoxDist(boxCenter - boxSize / 2.0, boxCenter + boxSize / 2.0, ray);
@@ -354,18 +425,29 @@ vec3 calculateColor(RayHit result, vec3 normal, vec3 intersectPos, vec3 shadeNor
   calcTexCoord(normal, center, intersectPos, texCoord, side1, side2);
   vec3 sampleCenter = center + normal;
   float ao = voxelAO(sampleCenter, side1, side2, texCoord);
-  vec3 lightDir = normalize(vec3(0.7, 0.8, 0.5));
+  vec3 lightDir = sunDir;
   vec3 albedo = voxelColor(center, side1, side2, texCoord);
   float directLight = 0.6 * clamp(dot(lightDir, shadeNormal), 0.0, 1.0);
-  if (result.data.w != 4.0) {
-    Ray shadowRay = createRay(intersectPos + normal * 0.01, lightDir);
-    if (raycast(shadowRay, 4.0).hit) {
-      directLight *= 0.0;
-    }
-  }
   float contrastLight = 0.15 * clamp(dot(-lightDir, shadeNormal), 0.0, 1.0);
   float ambientLight = 0.25;
-  float illumination = ambientLight + contrastLight + directLight;
+  bool shadowed = false;
+  if (result.data.w != 4.0) {
+    Ray shadowRay = createRay(intersectPos + 0.01 * normal, sunDir);
+    RayHit shadowData = raycast(shadowRay, 4.0);
+    float occluderDist = distance(voxelIntersectPos(shadowData.pos, shadowRay), intersectPos);
+    /*if (shadowData.pos.x < -1.0 || shadowData.pos.x > boxSize.x || shadowData.pos.y < -1.0
+    || avoxelPos.y > (boxSize.y + 1.0) / 8.0 || avoxelPos.z < -1.0 || avoxelPos.z > (boxSize.z + 1.0) / 8.0) {*/
+      //if (occluderDist > 0.001 && shadowData.pos != result.pos) {
+        //directLight = 0.0;
+      if (shadowData.hit/*occluderDist > 0.001 && occluderDist < 250.0*/) {
+        //return vec3(voxelIntersectPos(shadowData.pos, shadowRay));
+        shadowed = true;
+      }
+      //}
+    //}     
+    //return vec3(occluderDist / 500.0);
+  }
+  float illumination = ambientLight + contrastLight + (directLight - (shadowed ? directLight : 0.0));
   vec2 worldSampleCoord;
   if (abs(normal.y) == 1.0) {
     worldSampleCoord = intersectPos.xz;
@@ -426,6 +508,45 @@ float fbm(vec2 uv, float octaves)
     
     return value;
 }
+float mod289(float x){return x - floor(x * (1.0 / 289.0)) * 289.0;}
+    vec4 mod289(vec4 x){return x - floor(x * (1.0 / 289.0)) * 289.0;}
+    vec4 perm(vec4 x){return mod289(((x * 34.0) + 1.0) * x);}
+    
+    float noise3d(vec3 p){
+        vec3 a = floor(p);
+        vec3 d = p - a;
+        d = d * d * (3.0 - 2.0 * d);
+    
+        vec4 b = a.xxyy + vec4(0.0, 1.0, 0.0, 1.0);
+        vec4 k1 = perm(b.xyxy);
+        vec4 k2 = perm(k1.xyxy + b.zzww);
+    
+        vec4 c = k2 + a.zzzz;
+        vec4 k3 = perm(c);
+        vec4 k4 = perm(c + 1.0);
+    
+        vec4 o1 = fract(k3 * (1.0 / 41.0));
+        vec4 o2 = fract(k4 * (1.0 / 41.0));
+    
+        vec4 o3 = o2 * d.z + o1 * (1.0 - d.z);
+        vec2 o4 = o3.yw * d.x + o3.xz * (1.0 - d.x);
+    
+        return o4.y * d.y + o4.x * (1.0 - d.y);
+    }
+float fbm3d(vec3 x, float factor) {
+	float v = 0.0;
+	float a = 0.5;
+	vec3 shift = vec3(100);
+	for (float i = 0.0; i < 5.0 * factor; ++i) {
+		v += a * noise3d(x);
+		x = x * 2.0 + shift;
+		a *= 0.5;
+	}
+	return v;
+}  
+vec2 phiAndTheta(vec3 pos) {
+  return pos.xz * clamp(dot(pos, vec3(0.0, 1.0, 0.0)), 0.0, 1.0) + pos.xy * clamp(dot(pos, vec3(0.0, 0.0, 1.0)), 0.0, 1.0) + pos.yz * clamp(dot(pos, vec3(1.0, 0.0, 0.0)), 0.0, 1.0);
+}
 vec3 sky(vec3 ro, vec3 rd) {
   const float SC = 1e5;
   /*// Calculate sky plane
@@ -455,7 +576,10 @@ vec3 sky(vec3 ro, vec3 rd) {
    
    // horizon
    skyCol = mix( skyCol,  vec3(0.45, 0.55, 0.75), pow( 1.0 - max(rd.y, 0.0), 16.0 ) );*/
+   vec3 lightDir = sunDir;
    vec3 skyCol = vec3(0.3,0.5,0.85);
+   vec3 nightCol = vec3(12.0 / 255.0, 20.0 / 255.0, 69.0 / 255.0);
+   nightCol += texture(starbox, rd).rgb;
    vec3 cloudCol = vec3(1.);
    float dist = (SC - ro.y) / rd.y; 
    vec2 p = (ro + dist * rd).xz;
@@ -463,15 +587,27 @@ vec3 sky(vec3 ro, vec3 rd) {
    float t = time * 0.1;
    float den = fbm(vec2(p.x - t, p.y - t), 8.0);
    float den2 = fbm(vec2(p.x - t + 100.0, p.y - t + 100.0) * 2.0, 8.0);
-   vec3 lightDir = normalize(vec3(0.7, 0.8, 0.5));
+   float nightCo =  1.0 / (1.0 + exp(-25.0 * lightDir.y));
+   skyCol = mix(nightCol, skyCol, nightCo);
    float sundot = clamp(dot(rd, lightDir), 0.0, 1.0);
-   vec3 sun = 0.25 * vec3(1.0,0.7,0.4) * pow( sundot, 5.0 );
-   sun += 0.25 * vec3(1.0,0.8,0.6) * pow( sundot, 32.0 );
-   sun += 0.6 * vec3(1.0,0.8,0.6) * pow( sundot, 128.0 );
-   sun += 1.0 * vec3(1.0,0.8,0.6) * pow( sundot, 512.0 );
+   float moondot = clamp(dot(rd, -lightDir), 0.0, 1.0);
+   vec3 sun = 0.25 * vec3(1.0) * pow( sundot, 5.0 );
+   sun += 0.25 * vec3(1.0) * pow( sundot, 32.0 );
+   sun += 0.6 * vec3(1.0,0.8,0.5) * pow( sundot, 128.0 );
+   sun += 1.0 * vec3(1.0,0.8,0.5) * pow( sundot, 512.0 );
+   /*vec3 moon = 0.5 * vec3(1.0) * pow( -sundot, 128.0 );
+   moon += 0.5 * vec3(1.0) * pow( -sundot, 512.0 );*/
+   //moon += 0.6 * vec3(1.0,0.8,0.6) * pow( -sundot, 128.0 );
+  // moon += 1.0 * vec3(1.0,0.8,0.6) * pow( -sundot, 512.0 );
+ // skyCol += vec3(0.25) * pow( moondot, 128.0 );
+ vec3 moon = 0.25 * vec3(1.0) * pow( moondot, 5.0 );
+ moon += 0.25 * vec3(1.0) * pow( moondot, 32.0 );
+ moon += 0.6 * vec3(1.0, 1.0, 1.0) * pow( moondot, 128.0 );
+ moon += 1.0 * vec3(1.0, 1.0, 1.0) * round(pow( moondot, 1024.0 ));
    skyCol = mix(skyCol, sun, length(sun * 0.2));
-   skyCol = mix( skyCol, cloudCol * (0.5 + 0.5 * den2), smoothstep(.4, .8, den));
-   skyCol = mix( skyCol,  vec3(0.45, 0.55, 0.75), pow( 1.0 - max(rd.y, 0.0), 4.0 ) );
+   skyCol = mix(skyCol, moon * (round(pow( moondot, 1024.0 )) > 0.0 ? 0.25 + 0.75 * fbm3d((rd + lightDir) * 100.0, round(pow( moondot, 1024.0 ))) : 1.0), length(moon * 0.15));
+   skyCol = mix( skyCol, cloudCol * (0.5 + 0.5 * den2), smoothstep(.4, .8, den) * (0.1 + 0.9 * nightCo));
+   skyCol = mix( skyCol, mix(vec3(76.0 / 255.0, 64.0 / 255.0, 142.0 / 255.0), vec3(0.45, 0.55, 0.75), nightCo), pow( 1.0 - max(rd.y, 0.0), 4.0 ) );
    return skyCol;
 }
 		void main() {
@@ -509,7 +645,12 @@ vec3 sky(vec3 ro, vec3 rd) {
                 normalMap2 = normalMap2 * 2.0 - 1.0;
                 mat3 TBN = GetTangentSpace(normal);
                 normal = normalize(mix(normal, normalize(mix(normalize(TBN * normalMap), normalize(TBN * normalMap2), snoise(vec3(worldSampleCoord.x, time * 0.5, worldSampleCoord.y)))), 0.25));
-              }
+              }/*else {
+                  Ray shadowRay = createRay(intersectPos + 0.01 * normal, normalize(vec3(0.7, 0.8, 0.5)));
+                  if (raycast(shadowRay, 4.0).hit) {
+                    result.data.rgb *= 0.4;
+                  }
+              }*/
               vec3 albedo = calculateColor(result, result.normal, intersectPos, normal, ray);
               if (result.data.w == 4.0) {
                 Ray reflectionRay = createRay(intersectPos, reflect(ray.direction, normal));
